@@ -54,3 +54,11 @@ a:hover { text-decoration: underline; }
 div.comment { color: #666; text-align: center; margin-right: .1in; }
 div.comment a { color: #66c; }
 
+.host.selected {
+    fill: red;
+}
+
+line.highlight {
+    stroke: red;
+    stroke-width: 2;
+}

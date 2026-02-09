@@ -10,16 +10,145 @@ var selectedHosts = [];
    Logical Fat-Tree Model
    (non-invasive, used for stats & discussion)
 ========================= */
+function highlightPath(h1, h2) {
+    var x1 = +h1.getAttribute("data-x");
+    var x2 = +h2.getAttribute("data-x");
+    var y1 = +h1.getAttribute("data-y");
+    var y2 = +h2.getAttribute("data-y");
+
+    // Build a path set by collecting all cables to highlight
+    var pathCables = new Set();
+
+    // Get all cable elements
+    var cables = [];
+    d3.selectAll("line.cable").each(function () {
+        cables.push({
+            element: this,
+            x1: +d3.select(this).attr("x1"),
+            y1: +d3.select(this).attr("y1"),
+            x2: +d3.select(this).attr("x2"),
+            y2: +d3.select(this).attr("y2")
+        });
+    });
+
+    // Find path from host 1 upward
+    var path1 = findPathUpward(x1, y1, cables);
+
+    // Find path from host 2 upward
+    var path2 = findPathUpward(x2, y2, cables);
+
+    // Find common ancestor point (where paths meet at top)
+    var commonPoint = findCommonPoint(path1, path2);
+
+    // Mark cables in path1 from host to common point
+    for (var i = 0; i < path1.length; i++) {
+        var point = path1[i];
+        if (point.x === commonPoint.x && point.y === commonPoint.y) break;
+
+        var nextPoint = path1[i + 1];
+        if (nextPoint) {
+            markCableBetweenPoints(point, nextPoint, cables, pathCables);
+        }
+    }
+
+    // Mark cables in path2 from common point to host 2
+    var foundCommon = false;
+    for (var i = path2.length - 1; i >= 0; i--) {
+        var point = path2[i];
+        if (point.x === commonPoint.x && point.y === commonPoint.y) {
+            foundCommon = true;
+            continue;
+        }
+
+        if (foundCommon) {
+            var nextPoint = path2[i + 1];
+            if (nextPoint) {
+                markCableBetweenPoints(point, nextPoint, cables, pathCables);
+            }
+        }
+    }
+
+    // Apply highlight to marked cables
+    cables.forEach(function(cable) {
+        if (pathCables.has(cable)) {
+            d3.select(cable.element).classed("highlight", true);
+        }
+    });
+}
+
+function findPathUpward(hostX, hostY, cables) {
+    var path = [{x: hostX, y: hostY}];
+    var current = {x: hostX, y: hostY};
+
+    // Trace upward from host to the topmost layer
+    while (current.y !== 0) {
+        var nextPoint = null;
+
+        // Find cable connected at y1 or y2 that goes to a different y
+        for (var i = 0; i < cables.length; i++) {
+            var cable = cables[i];
+
+            if (Math.abs(cable.x1 - current.x) < 0.5 && Math.abs(cable.y1 - current.y) < 0.5) {
+                nextPoint = {x: cable.x2, y: cable.y2};
+                break;
+            } else if (Math.abs(cable.x2 - current.x) < 0.5 && Math.abs(cable.y2 - current.y) < 0.5) {
+                nextPoint = {x: cable.x1, y: cable.y1};
+                break;
+            }
+        }
+
+        if (nextPoint === null) break;
+        path.push(nextPoint);
+        current = nextPoint;
+    }
+
+    return path;
+}
+
+function findCommonPoint(path1, path2) {
+    // Find where two paths meet (at the top/center)
+    // Look for matching points, starting from the end (top of tree)
+    for (var i = path1.length - 1; i >= 0; i--) {
+        for (var j = path2.length - 1; j >= 0; j--) {
+            var p1 = path1[i];
+            var p2 = path2[j];
+            if (Math.abs(p1.x - p2.x) < 0.5 && Math.abs(p1.y - p2.y) < 0.5) {
+                return p1;
+            }
+        }
+    }
+
+    // Fallback: use the topmost point
+    return path1[path1.length - 1];
+}
+
+function markCableBetweenPoints(point1, point2, cables, pathSet) {
+    for (var i = 0; i < cables.length; i++) {
+        var cable = cables[i];
+
+        var startsAt1 = Math.abs(cable.x1 - point1.x) < 0.5 && Math.abs(cable.y1 - point1.y) < 0.5;
+        var endsAt2 = Math.abs(cable.x2 - point2.x) < 0.5 && Math.abs(cable.y2 - point2.y) < 0.5;
+
+        var startsAt2 = Math.abs(cable.x1 - point2.x) < 0.5 && Math.abs(cable.y1 - point2.y) < 0.5;
+        var endsAt1 = Math.abs(cable.x2 - point1.x) < 0.5 && Math.abs(cable.y2 - point1.y) < 0.5;
+
+        if ((startsAt1 && endsAt2) || (startsAt2 && endsAt1)) {
+            pathSet.add(cable);
+        }
+    }
+}
 
 function fatTreeModel(depth, width) {
     var k = Math.floor(width / 2);
+    var line = Math.pow(k, depth - 1);
     return {
         depth: depth,
         k: k,
-        servers: Math.pow(k, 3) / 4,
-        torSwitches: Math.pow(k, 2) / 2,
-        aggSwitches: Math.pow(k, 2) / 2,
-        coreSwitches: Math.pow(k, 2) / 4
+        nhost: 2 * line * k,
+        nswitch: (2 * depth - 1) * line,
+        ncable: (2 * depth) * k * line,
+        ntx: 2 * (2 * depth) * k * line,
+        nswtx: 2 * (2 * depth) * k * line - 2 * line * k,
     };
 }
 
@@ -53,7 +182,7 @@ function drawFatTree(depth, width) {
     var k = Math.floor(width / 2);
     var model = fatTreeModel(depth, width);
 
-    var padg = 13;
+    var padg = width * 4;
     var padi = 12;
     var hline = 70;
     var hhost = 50;
@@ -137,14 +266,28 @@ function drawFatTree(depth, width) {
             .attr("class", "host")
             .attr("cx", x + dx)
             .attr("cy", y + dy)
-            .attr("r", hostr);
+            .attr("r", hostr)
+            .attr("data-x", x)
+            .attr("data-y", y)
+            .on("click", function () {
+                selectHost(this);
+            });
     }
 
     function drawHosts(list, y, direction) {
+        var hostsPerSwitch = k;
+        var hostOffsets = [];
+
+        // Generate evenly spaced offsets for the hosts
+        for (var h = 0; h < hostsPerSwitch; h++) {
+            var offset = (h - (hostsPerSwitch - 1) / 2) * 4;
+            hostOffsets.push(offset);
+        }
+
         for (var i = 0; i < list.length; i++) {
-            drawHost(list[i], y, hhost * direction, -4);
-            drawHost(list[i], y, hhost * direction, 0);
-            drawHost(list[i], y, hhost * direction, 4);
+            for (var j = 0; j < hostOffsets.length; j++) {
+                drawHost(list[i], y, hhost * direction, hostOffsets[j]);
+            }
         }
     }
 
@@ -189,11 +332,27 @@ function drawFatTree(depth, width) {
         }
     }
 }
+function selectHost(hostElem) {
 
+    // Clear previous path if starting fresh
+    if (selectedHosts.length === 2) {
+        selectedHosts = [];
+        d3.selectAll(".highlight").classed("highlight", false);
+        d3.selectAll(".selected").classed("selected", false);
+    }
+
+    selectedHosts.push(hostElem);
+    d3.select(hostElem).classed("selected", true);
+
+    if (selectedHosts.length === 2) {
+        highlightPath(selectedHosts[0], selectedHosts[1]);
+    }
+}
 /* =========================
    Controls (UNCHANGED)
 ========================= */
 function formatNum(x) {
+    console.log(x);
     x = x.toString();
     var pattern = /(-?\d+)(\d{3})/;
     while (pattern.test(x))
@@ -207,19 +366,12 @@ function formInit() {
         conf[this.name] = parseInt(this.value);
         w = conf['width'];
         d = conf['depth'];
-        var line = Math.pow(w, d - 1);
-
-        var nhost = 2 * line * w;
-        var nswitch = (2 * d - 1) * line;
-        var ncable = (2 * d) * w * line;
-        var ntx = 2 * (2 * d) * w * line;
-        var nswtx = ntx - nhost;
-
-        d3.select("#nhost").html(formatNum(nhost));
-        d3.select("#nswitch").html(formatNum(nswitch));
-        d3.select("#ncable").html(formatNum(ncable));
-        d3.select("#ntx").html(formatNum(ntx));
-        d3.select("#nswtx").html(formatNum(nswtx));
+        var infoTable = fatTreeModel(d, w);
+        d3.select("#nhost").html(formatNum(infoTable.nhost));
+        d3.select("#nswitch").html(formatNum(infoTable.nswitch));
+        d3.select("#ncable").html(formatNum(infoTable.ncable));
+        d3.select("#ntx").html(formatNum(infoTable.ntx));
+        d3.select("#nswtx").html(formatNum(infoTable.nswtx));
         redraw();
     }
 
