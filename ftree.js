@@ -16,6 +16,12 @@ function highlightPath(h1, h2) {
     var y1 = +h1.getAttribute("data-y");
     var y2 = +h2.getAttribute("data-y");
 
+    // Get actual host positions from circle elements
+    var h1cx = +h1.getAttribute("cx");
+    var h1cy = +h1.getAttribute("cy");
+    var h2cx = +h2.getAttribute("cx");
+    var h2cy = +h2.getAttribute("cy");
+
     // Build a path set by collecting all cables to highlight
     var pathCables = new Set();
 
@@ -30,6 +36,10 @@ function highlightPath(h1, h2) {
             y2: +d3.select(this).attr("y2")
         });
     });
+
+    // Mark the cables from hosts to their switches
+    markCableBetweenPoints({x: h1cx, y: h1cy}, {x: x1, y: y1}, cables, pathCables);
+    markCableBetweenPoints({x: h2cx, y: h2cy}, {x: x2, y: y2}, cables, pathCables);
 
     // Find path from host 1 upward
     var path1 = findPathUpward(x1, y1, cables);
@@ -106,10 +116,10 @@ function findPathUpward(hostX, hostY, cables) {
 }
 
 function findCommonPoint(path1, path2) {
-    // Find where two paths meet (at the top/center)
-    // Look for matching points, starting from the end (top of tree)
-    for (var i = path1.length - 1; i >= 0; i--) {
-        for (var j = path2.length - 1; j >= 0; j--) {
+    // Find the FIRST (lowest/closest to hosts) common point where paths meet
+    // Start from the beginning of each path and find the first matching point
+    for (var i = 0; i < path1.length; i++) {
+        for (var j = 0; j < path2.length; j++) {
             var p1 = path1[i];
             var p2 = path2[j];
             if (Math.abs(p1.x - p2.x) < 0.5 && Math.abs(p1.y - p2.y) < 0.5) {
