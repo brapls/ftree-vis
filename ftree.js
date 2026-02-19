@@ -217,6 +217,7 @@ function drawFatTree(depth, width) {
     var svg = d3.select("body").append("svg")
         .attr("width", w)
         .attr("height", h)
+        .attr("style", "margin-left: 200px;")
         .attr("class", "main")
         .append("g")
         .attr("transform", "translate(" + w / 2 + "," + h / 2 + ")");
